@@ -1,0 +1,239 @@
+## CTRA main analysis - combined genesets 
+## Dataset: mstudy 
+
+## Load packages 
+library("tidyverse")
+library("tidyr")
+library("haven")
+library("gee")
+library("lme4")
+library("lmerTest") 
+library("merDeriv")
+
+
+## Read in .dta file which contains expression values 
+## Data is in long format with gene expression values at 2 timepoints 
+## Data has two gene sets (interferon and inflammatory)
+data <- read_dta("exp.dta") 
+
+## Convert data from long to wide format using tidyr package 
+data_wide <- spread(data, gene, expression_rgn)
+
+
+## Calculate the standard deviation for 53 CTRA genes (60 genes in total)
+geneSD<-apply(data_wide[,6:65], 2, sd, na.rm=TRUE)
+
+## Genes with SD >= 1 
+CTRA_genes_sd <- geneSD[ which(geneSD >= 1) ]
+ 
+## Negatively weight interferon genes 
+data_wide$GBP1<-data_wide$GBP1*-1
+data_wide$IFI16<-data_wide$IFI16*-1
+data_wide$IFI27<-data_wide$IFI27*-1
+data_wide$IFI27L1<-data_wide$IFI27L1*-1
+data_wide$IFI27L2<-data_wide$IFI27L2*-1
+data_wide$IFI30<-data_wide$IFI30*-1
+data_wide$IFI35<-data_wide$IFI35*-1
+data_wide$IFI44<-data_wide$IFI44*-1
+data_wide$IFI44L<-data_wide$IFI44L*-1
+data_wide$IFI6<-data_wide$IFI6*-1
+data_wide$IFIH1<-data_wide$IFIH1*-1
+data_wide$IFIT1<-data_wide$IFIT1*-1
+data_wide$IFIT2<-data_wide$IFIT2*-1
+data_wide$IFIT3<-data_wide$IFIT3*-1
+data_wide$IFIT5<-data_wide$IFIT5*-1
+data_wide$IFITM1<-data_wide$IFITM1*-1
+data_wide$IFITM2<-data_wide$IFITM2*-1
+data_wide$IFITM3<-data_wide$IFITM3*-1
+data_wide$IRF2<-data_wide$IRF2*-1
+data_wide$IRF7<-data_wide$IRF7*-1
+data_wide$IRF8<-data_wide$IRF8*-1
+data_wide$JCHAIN<-data_wide$JCHAIN*-1
+data_wide$MX1<-data_wide$MX1*-1
+data_wide$MX2<-data_wide$MX2*-1
+data_wide$OAS1<-data_wide$OAS1*-1
+data_wide$OAS2<-data_wide$OAS2*-1
+data_wide$OAS3<-data_wide$OAS3*-1
+data_wide$OASL<-data_wide$OASL*-1
+
+
+## Read in ACES 
+aces<-read.csv("ACES.csv", header=T)
+
+#Create ACEs variables
+#Total ACE cumulative score (sum of ACE items)
+aces$aces_total_score<-aces$SOC_ACE1 + aces$SOC_ACE2 + aces$SOC_ACE3 + aces$SOC_ACE4 + aces$SOC_ACE5  +aces$SOC_ACE6 + aces$SOC_ACE7 + aces$SOC_ACE8 + aces$SOC_ACE9 + aces$SOC_ACE10  
+
+
+## Create Binary ACE variable 
+## Anyone with  1 or more aces is coded as one (i.e. having exposure to ACEs) 
+aces$bin<-ifelse(aces$aces_total_score >=1, 1,0)  
+
+## Abuse and Neglect subscales  
+aces$PA<-aces$SOC_ACE2
+aces$SA<-aces$SOC_ACE3 
+aces$EA<-aces$SOC_ACE1 
+aces$EN<-aces$SOC_ACE4 
+aces$PN<-aces$SOC_ACE5 
+
+##Childhood maltreatment (abuse and neglect subscales)
+aces$aces_child_mal<-aces$SOC_ACE1 + aces$SOC_ACE2 + aces$SOC_ACE3 + aces$SOC_ACE4 + aces$SOC_ACE5
+ 
+## Household dysfunction 
+aces$aces_house_dys<-aces$SOC_ACE6 + aces$SOC_ACE7 + aces$SOC_ACE8 + aces$SOC_ACE9 + aces$SOC_ACE10  
+
+
+## Read in other phenotypes 
+pheno_visit0<-read.csv("MStudy_ACE_CTRA_visitnum0.csv", header=T)
+
+
+## merge phenotypes 
+pheno_merge <- (merge(pheno_visit0[,c("PTID", "SITEID", "VISITNUM", "VISITNAME","OC_DATE", "ASSESSMENT_DATE", "HIVSTATUS", "AGE_AT_VISIT", "DRUG_TEST", "METHAMPHETAMINE","BMI","Q2","Q330","Q185_CLEAN_BASELINE", "Q13", "Q33", "Q15", "Q187")], aces[c("PTID", "VISITNUM", "SOC_ACE1", "SOC_ACE2", "SOC_ACE3", "SOC_ACE4", "SOC_ACE5", "SOC_ACE6", "SOC_ACE7","SOC_ACE8","SOC_ACE9", "SOC_ACE10", "Q399_V62", "Q400_V62", "aces_total_score", "bin", "aces_child_mal", "aces_house_dys", "PA", "SA", "EA", "EN", "PN")], by="PTID"))
+
+
+## To change column names 
+colnames(pheno_merge) 
+names(pheno_merge)[names(pheno_merge) == "Q2"] <- "HIV_STATUS"
+names(pheno_merge)[names(pheno_merge) == "Q330"] <- "HIV_STATUS_2"
+names(pheno_merge)[names(pheno_merge) == "Q185_CLEAN_BASELINE"] <- "Ethnicity"
+names(pheno_merge)[names(pheno_merge) == "Q13"] <- "work"
+
+#### Ensure categorical variables are factors 
+pheno_merge$HIVSTATUS<-as.factor(pheno_merge$HIVSTATUS)
+pheno_merge$bin<-as.factor(pheno_merge$bin)
+pheno_merge$PA<-as.factor(pheno_merge$PA)
+pheno_merge$SA<-as.factor(pheno_merge$SA)
+pheno_merge$EA<-as.factor(pheno_merge$EA)
+pheno_merge$EN<-as.factor(pheno_merge$EN)
+pheno_merge$PN<-as.factor(pheno_merge$PN)
+
+
+## For employment variable - Changed  7 "refuse to answer" to NA
+pheno_merge$work_noseven<- as.character(pheno_merge$work)
+pheno_merge$work_noseven[pheno_merge$work_noseven == 7] <- NA
+pheno_merge$employed<-ifelse(pheno_merge$work_noseven>=3 & pheno_merge$work_noseven<=5, 1,0)
+
+
+##Ethnicity
+#subset dataset to only include Black (coded as 4) and LatinX (coded as 8) 
+pheno_merge_ethnicity <- subset(pheno_merge, pheno_merge$Ethnicity==4 | pheno_merge$Ethnicity==8)
+
+## Checking for normality of continous variables 
+shapiro.test(pheno_merge_ethnicity$AGE_AT_VISIT)
+shapiro.test(pheno_merge_ethnicity$aces_total_score)
+shapiro.test(pheno_merge_ethnicity$aces_child_mal)
+shapiro.test(pheno_merge_ethnicity$aces_house_dys)
+
+## Testing for differences in sociodemographic characteristics, smoking and substance use between ACES Exposed and Unexposed groups (binary ACE variable)
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$HIVSTATUS)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$HIVSTATUS)
+
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$employed)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$employed)
+
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$smoking_bin)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$smoking_bin)
+
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$weekly_alc)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$weekly_alc)
+
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$METHAMPHETAMINE)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$METHAMPHETAMINE)
+
+table(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$Ethnicity)
+chisq.test(pheno_merge_ethnicity$bin, pheno_merge_ethnicity$Ethnicity)
+
+age_no_ACES<-subset(pheno_merge_ethnicity$AGE_AT_VISIT, pheno_merge_ethnicity$bin==0)
+age_ACES<-subset(pheno_merge_ethnicity$AGE_AT_VISIT, pheno_merge_ethnicity$bin==1)
+summary(age_no_ACES)
+summary(age_ACES)
+wilcox.test (age_no_ACES, age_ACES, paired=FALSE)
+
+
+## subsetting gene expression data for genes with SD >1
+## make gene variable as.factor 
+## make sure all factor variables are factors after merging 
+
+colnames(data_wide)
+
+merged_CTRA_pheno <- (merge(pheno_merge_ethnicity[,c("PTID", "SITEID", "VISITNUM.x", "HIVSTATUS", "AGE_AT_VISIT", "METHAMPHETAMINE", "HIV_STATUS","Ethnicity","work", "housing", "smoking", "smoking_bin", "alcohol","SOC_ACE1", "SOC_ACE2", "SOC_ACE3", "SOC_ACE4", "SOC_ACE5", "SOC_ACE6", "SOC_ACE7","SOC_ACE8","SOC_ACE9", "SOC_ACE10", "IPV_physical", "IPV_sexual", "aces_total_score", "bin", "aces_child_mal", "aces_house_dys", "PA", "SA", "EA", "EN", "PN", "unstable_housing", "employed", "weekly_alc")], data_wide[,c("sample_id", "PTID","visitnum", "hivstat", "geneset", "cd3d", "cd19", "cd4", "cd8a", "fcgr3a", "ncam1","cd14", "GBP1","IFI16", "IFI27", "IFI27L1", "IFI27L2", "IFI30","IFI35", "IFI44",  "IFI44L", "IFI6", "IFIH1", "IFIT1", "IFIT2", "IFIT3","IFIT5", "IFITM1", "IFITM2", "IFITM3", "IRF2", "IRF7", "IRF8", "JCHAIN", "MX1", "MX2", "OAS1", "OAS2", "OAS3", "OASL",  "CXCL8","FOS", "FOSB","FOSL1","FOSL2","IL1A", "IL1B","IL6","JUN", "JUNB","JUND", "NFKB1","NFKB2","PTGS1","PTGS2", "REL", "RELA", "RELB","TNF")], by="PTID"))
+
+## convert data from wide to long format 
+merged_data_long <- merged_CTRA_pheno %>% 
+  tidyr::pivot_longer(cols = c(GBP1,IFI16, IFI27, IFI27L1, IFI27L2, IFI30,IFI35, IFI44,  IFI44L, IFI6, IFIH1, IFIT1, IFIT2, IFIT3,IFIT5, IFITM1, IFITM2, IFITM3, IRF2, IRF7, IRF8, JCHAIN, MX1, MX2, OAS1, OAS2, OAS3, OASL,  CXCL8,FOS, FOSB,FOSL1,FOSL2,IL1A, IL1B,IL6,JUN, JUNB,JUND,NFKB1,NFKB2,PTGS1,PTGS2, REL, RELA, RELB,TNF),  # all existing variables (not quoted) ## Excluded cd3d, cd19, cd4, cd8a, fcgr3a, ncam1, chd14 which are cell type markers 
+                      names_to = "genes", 
+                      #names_pattern = "bdi.(.)m",
+                      #values_ptype = list(genes = numeric()),
+                      values_to = "expression") %>% 
+  dplyr::filter(complete.cases(PTID, aces_total_score , genes)) %>% 
+  dplyr::arrange(PTID, genes) %>% 
+  dplyr::select(PTID, SITEID, HIVSTATUS, AGE_AT_VISIT, genes, expression,aces_total_score,visitnum, Ethnicity,bin, geneset, aces_child_mal, aces_house_dys, PA, SA, EA, EN, PN, smoking_bin, BMI, weekly_alc, METHAMPHETAMINE)
+
+merged_data_long$PTID<-factor(merged_data_long$PTID)
+merged_data_long$visitnum<-factor(merged_data_long$visitnum)
+merged_data_long$genes<-factor(merged_data_long$genes)
+merged_data_long$bin<-factor(merged_data_long$bin)
+merged_data_long$PA<-factor(merged_data_long$PA)
+merged_data_long$SA<-factor(merged_data_long$SA)
+merged_data_long$EA<-factor(merged_data_long$EA)
+merged_data_long$EN<-factor(merged_data_long$EN)
+merged_data_long$PN<-factor(merged_data_long$PN)
+merged_data_long$PN<-factor(merged_data_long$HIVSTATUS)
+merged_data_long$PN<-factor(merged_data_long$Ethnicity)
+merged_data_long$PN<-factor(merged_data_long$smoking_bin)
+merged_data_long$PN<-factor(merged_data_long$weekly_alc)
+merged_data_long$PN<-factor(merged_data_long$METHAMPHETAMINE)
+
+
+## Check distribution of expression values 
+boxplot(expression ~ genes, data = merged_data_long, ylab="Expression of CTRA genes") 
+
+## Test associations between potential covariates and CTRA using linear mixed models 
+mixed.lmer.age <- lmer(expression ~ AGE_AT_VISIT + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.age )
+
+mixed.lmer.hiv <- lmer(expression ~ HIVSTATUS + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.hiv )
+
+
+mixed.lmer.eth <- lmer(expression ~ Ethnicity + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.eth )
+
+mixed.lmer.smoke <- lmer(expression ~ smoking_bin + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.smoke )
+
+mixed.lmer.alc <- lmer(expression ~ weekly_alc + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.alc)
+
+mixed.lmer.meth <- lmer(expression ~ METHAMPHETAMINE + visitnum + genes +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.meth)
+
+### Linear mixed models testing association between gene expressions and ACEs with covariates 
+mixed.lmer.score <- lmer(expression ~ aces_total_score + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS  + METHAMPHETAMINE + (1|PTID), data = merged_data_long)
+summary(mixed.lmer.score)
+
+vcov(mixed.lmer.score) ## to get variance-covariance matrix 
+
+mixed.lmer.bin <- lmer(expression ~ bin + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS +  METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.bin)
+
+mixed.lmer.child_mal <- lmer(expression ~ aces_child_mal + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS + METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.child_mal)
+
+mixed.lmer.house <- lmer(expression ~ aces_house_dys + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS +  METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.house)
+
+mixed.lmer.EA <- lmer(expression ~ EA + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS +  METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.EA )
+
+mixed.lmer.PA <- lmer(expression ~ PA + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS +  METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.PA )
+
+mixed.lmer.SA <- lmer(expression ~ SA + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS +  METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.SA )
+
+mixed.lmer.EN <- lmer(expression ~ EN + visitnum + genes + AGE_AT_VISIT+ HIVSTATUS  + METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.EN )
+
+mixed.lmer.PN <- lmer(expression ~ PN + visitnum + genes + AGE_AT_VISIT + HIVSTATUS + METHAMPHETAMINE +  (1|PTID), data = merged_data_long)
+summary(mixed.lmer.PN )
